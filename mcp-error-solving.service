@@ -1,0 +1,27 @@
+[Unit]
+Description=MCP Error Solving Server
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=marcus
+Group=marcus
+WorkingDirectory=/home/marcus/mcp-error-solving
+Environment=PATH=/home/marcus/mcp-error-solving/venv/bin
+ExecStart=/home/marcus/mcp-error-solving/venv/bin/python main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcp-error-solving
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/marcus/mcp-error-solving
+
+[Install]
+WantedBy=multi-user.target
