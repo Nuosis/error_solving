@@ -2,14 +2,12 @@
 """
 Error Solving MCP Server using FastMCP
 
-This server provides a single streamlined tool for systematic error solving using null hypothesis testing methodology.
-It generates complete error investigation packages with both structured documents and investigation prompts.
+This server provides a simplified tool for error solving that returns the template as-is
+and combines provided problem information with the error solving prompt.
 """
 
 import os
-import re
-from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Optional
 
 from fastmcp import FastMCP
 
@@ -118,58 +116,35 @@ def define_problem(
     Returns:
         str: JSON string containing both the error investigation file and prompt with the following structure:
              {
-               "file": "Complete investigation document with symptom and generated hypotheses",
-               "prompt": "Methodology prompt customized for this specific investigation"
+               "file": "Template as-is",
+               "prompt": "Provided information + contents of error_solving_prompt.md"
              }
     """
     try:
         import json
         
-        # Generate title from problem statement
-        words = re.findall(r'\b[A-Z][a-z]+\b|\b[a-z]+\b', problem_statement)
-        key_words = [word.title() for word in words[:4] if len(word) > 3]
-        title = f"{' '.join(key_words)} Investigation" if key_words else "Error Investigation"
+        # Get the template as-is
+        template_content = read_template_file()
         
-        # Create comprehensive symptom description
-        symptom_description = f"""{problem_statement}
+        # Create the prompt by combining provided information with prompt file contents
+        prompt_file_content = read_prompt_file()
+        
+        combined_prompt = f"""## Problem Statement
+{problem_statement}
 
-**Steps to Reproduce:**
+## Steps to Reproduce
 {steps_to_reproduce}
 
-**Existing Resolution Efforts:**
-{existing_efforts}"""
-        
-        # Generate hypotheses based on all provided information
-        combined_context = f"{problem_statement} {steps_to_reproduce} {existing_efforts}"
-        hypotheses = generate_hypotheses(combined_context)
-        
-        # Create the error investigation document
-        document = f"""# {title}
+## Existing Efforts
+{existing_efforts}
 
-## Symptom
-{symptom_description}
-
-## Hypotheses
-
-"""
-        
-        # Add generated hypotheses with proper priority ordering
-        for i, hypothesis in enumerate(hypotheses, 1):
-            priority = hypothesis.get('priority', 'Medium')
-            document += f"""{i}. **{hypothesis['name']}** ({priority})
-   - hypothesis: {hypothesis['hypothesis']}
-   - null hypothesis: {hypothesis['null_hypothesis']}
-
-"""
-        
-        # Get the investigation prompt
-        prompt_content = read_prompt_file()
-        prompt_content = prompt_content.replace("{{Name}}", title.replace(" Investigation", ""))
+## Instructions
+{prompt_file_content}"""
         
         # Create JSON response
         response = {
-            "file": document.strip(),
-            "prompt": prompt_content.strip()
+            "file": template_content.strip(),
+            "prompt": combined_prompt.strip()
         }
         
         return json.dumps(response, indent=2)
@@ -177,99 +152,6 @@ def define_problem(
     except Exception as e:
         return json.dumps({"error": f"Error defining problem: {str(e)}"}, indent=2)
 
-def generate_hypotheses(problem_statement: str) -> List[Dict[str, str]]:
-    """
-    Generate hypotheses based on the problem statement.
-    
-    Args:
-        problem_statement: The problem description
-        
-    Returns:
-        List of hypothesis dictionaries with name, hypothesis, null_hypothesis, and priority
-    """
-    hypotheses = []
-    
-    # Analyze problem statement for common patterns
-    problem_lower = problem_statement.lower()
-    
-    # Database/Model related issues
-    if any(term in problem_lower for term in ['model', 'database', 'binding', 'eloquent', 'query']):
-        hypotheses.append({
-            'name': 'Model Binding Issue',
-            'hypothesis': 'Model binding is failing or not working as expected',
-            'null_hypothesis': 'Model binding works correctly and follows standard behavior',
-            'priority': 'Most Fundamental'
-        })
-    
-    # Authentication/Authorization issues
-    if any(term in problem_lower for term in ['policy', 'auth', 'permission', 'access', 'login']):
-        hypotheses.append({
-            'name': 'Authorization Policy',
-            'hypothesis': 'Authorization policy is preventing access or failing to execute',
-            'null_hypothesis': 'Authorization policy executes correctly and grants appropriate access',
-            'priority': 'High'
-        })
-    
-    # Route/URL issues
-    if any(term in problem_lower for term in ['route', 'url', 'parameter', 'endpoint']):
-        hypotheses.append({
-            'name': 'Route Configuration',
-            'hypothesis': 'Route configuration or parameter handling is incorrect',
-            'null_hypothesis': 'Route configuration correctly handles parameters and mapping',
-            'priority': 'Medium'
-        })
-    
-    # Middleware issues
-    if any(term in problem_lower for term in ['middleware', 'request', 'response', 'pipeline']):
-        hypotheses.append({
-            'name': 'Middleware Order',
-            'hypothesis': 'Middleware execution order or configuration is causing issues',
-            'null_hypothesis': 'Middleware executes in correct order without interference',
-            'priority': 'Medium'
-        })
-    
-    # Caching issues
-    if any(term in problem_lower for term in ['cache', 'cached', 'caching']):
-        hypotheses.append({
-            'name': 'Cache Configuration',
-            'hypothesis': 'Caching is preventing updates or causing stale data issues',
-            'null_hypothesis': 'Cache configuration works correctly and serves fresh data',
-            'priority': 'Most Dependent'
-        })
-    
-    # Configuration issues
-    if any(term in problem_lower for term in ['config', 'setting', 'environment', 'env']):
-        hypotheses.append({
-            'name': 'Configuration Issue',
-            'hypothesis': 'Application configuration or environment settings are incorrect',
-            'null_hypothesis': 'Configuration and environment settings are correct and loaded properly',
-            'priority': 'High'
-        })
-    
-    # If no specific patterns found, add generic hypotheses
-    if not hypotheses:
-        hypotheses = [
-            {
-                'name': 'Core Functionality',
-                'hypothesis': 'The core functionality is not working as expected',
-                'null_hypothesis': 'The core functionality works correctly under normal conditions',
-                'priority': 'Most Fundamental'
-            },
-            {
-                'name': 'Data Flow',
-                'hypothesis': 'Data is not flowing correctly through the system',
-                'null_hypothesis': 'Data flows correctly through all system components',
-                'priority': 'High'
-            },
-            {
-                'name': 'External Dependencies',
-                'hypothesis': 'External dependencies or services are causing the issue',
-                'null_hypothesis': 'External dependencies are available and responding correctly',
-                'priority': 'Medium'
-            }
-        ]
-    
-    return hypotheses
 
 if __name__ == "__main__":
     # Run the FastMCP server
