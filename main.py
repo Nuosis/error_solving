@@ -166,29 +166,52 @@ def get_error_solving_prompt() -> str:
     """
     return read_prompt_file(3)
 
-def determine_phase(steps_to_reproduce: str, existing_efforts: str) -> int:
+def validate_phase_selection(phase: int, steps_to_reproduce: Optional[str], existing_efforts: Optional[str]) -> dict:
     """
-    Determine which phase to use based on the steps to reproduce and existing efforts.
+    Validate the selected phase and provide recommendations based on available information.
     
     Args:
-        steps_to_reproduce: Description of steps to reproduce the issue
-        existing_efforts: Description of existing troubleshooting efforts
+        phase: The selected investigation phase (1, 2, or 3)
+        steps_to_reproduce: Description of steps to reproduce the issue (optional)
+        existing_efforts: Description of existing troubleshooting efforts (optional)
         
     Returns:
-        int: Phase number (1, 2, or 3)
+        dict: Validation result with 'valid', 'recommended_phase', 'message', and 'warnings'
     """
-    # Normalize inputs for analysis
-    steps_lower = steps_to_reproduce.lower().strip()
-    efforts_lower = existing_efforts.lower().strip()
+    # Validate phase is in valid range
+    if phase not in [1, 2, 3]:
+        return {
+            'valid': False,
+            'recommended_phase': 1,
+            'message': f"Invalid phase {phase}. Phase must be 1, 2, or 3.",
+            'warnings': []
+        }
     
-    # Check for "unverified" or minimal steps to reproduce
+    # If no optional information provided, recommend Phase 1 as starting point
+    if not steps_to_reproduce and not existing_efforts:
+        warnings = []
+        if phase != 1:
+            warnings.append(f"Without reproduction steps or existing efforts, Phase 1 (basic code review) is recommended as the starting point")
+        
+        return {
+            'valid': True,
+            'recommended_phase': 1,
+            'message': f"Phase {phase} selected. No additional information provided - Phase 1 recommended as starting point.",
+            'warnings': warnings
+        }
+    
+    # Analyze provided information
+    steps_lower = (steps_to_reproduce or "").lower().strip()
+    efforts_lower = (existing_efforts or "").lower().strip()
+    
+    # Check for minimal steps to reproduce
     minimal_steps_indicators = [
         "unverified", "not reproduced", "unable to reproduce",
-        "cannot reproduce", "no steps", "unknown", "unclear"
+        "cannot reproduce", "no steps", "unknown", "unclear", "steps to reproduce not provided"
     ]
     
     has_minimal_steps = (
-        len(steps_lower) < 50 or  # Very short description
+        len(steps_lower) < 50 or
         any(indicator in steps_lower for indicator in minimal_steps_indicators) or
         steps_lower in ["", "none", "n/a", "unknown"]
     )
@@ -196,11 +219,11 @@ def determine_phase(steps_to_reproduce: str, existing_efforts: str) -> int:
     # Check for minimal existing efforts
     minimal_efforts_indicators = [
         "none", "no attempts", "not attempted", "no effort",
-        "nothing tried", "no troubleshooting"
+        "nothing tried", "no troubleshooting", "no existing efforts documented"
     ]
     
     has_minimal_efforts = (
-        len(efforts_lower) < 30 or  # Very short description
+        len(efforts_lower) < 30 or
         any(indicator in efforts_lower for indicator in minimal_efforts_indicators) or
         efforts_lower in ["", "none", "n/a", "nothing"]
     )
@@ -221,23 +244,49 @@ def determine_phase(steps_to_reproduce: str, existing_efforts: str) -> int:
     
     has_logging_work = any(indicator in efforts_lower for indicator in logging_indicators)
     
-    # Phase 1: Basic bug description, no code review conducted
+    # Determine recommended phase based on information
     if has_minimal_steps and has_minimal_efforts and not has_code_review:
-        return 1
+        recommended_phase = 1
+        phase_rationale = "Basic bug description with minimal reproduction steps and no code review"
+    elif not has_minimal_steps and has_code_review and not has_logging_work:
+        recommended_phase = 2
+        phase_rationale = "Some reproduction steps and code review completed, but limited logging/observability"
+    else:
+        recommended_phase = 3
+        phase_rationale = "Detailed understanding with sufficient logging, requiring systematic investigation"
     
-    # Phase 2: Some reproduction steps, some code review, but little logging
-    if not has_minimal_steps and has_code_review and not has_logging_work:
-        return 2
+    # Generate validation result
+    warnings = []
     
-    # Phase 3: Detailed understanding, sufficient logging, but bug persists
-    return 3
+    if phase != recommended_phase:
+        if phase < recommended_phase:
+            warnings.append(f"Selected Phase {phase} may be too basic. Consider Phase {recommended_phase}: {phase_rationale}")
+        else:
+            warnings.append(f"Selected Phase {phase} may be too advanced. Consider Phase {recommended_phase}: {phase_rationale}")
+    
+    # Additional specific warnings
+    if phase == 3 and has_minimal_steps:
+        warnings.append("Phase 3 typically requires detailed reproduction steps for systematic investigation")
+    
+    if phase == 1 and has_code_review:
+        warnings.append("Phase 1 is for initial code review, but code review appears to have been completed")
+    
+    if phase == 2 and has_logging_work:
+        warnings.append("Phase 2 focuses on adding logging, but logging work appears to have been done")
+    
+    return {
+        'valid': True,
+        'recommended_phase': recommended_phase,
+        'message': f"Phase {phase} selected. Recommended phase based on provided information: {recommended_phase} ({phase_rationale})",
+        'warnings': warnings
+    }
 
 @mcp.tool()
 def define_problem(
     problem_statement: str,
-    steps_to_reproduce: str,
-    existing_efforts: str,
-    phase: Optional[int] = None
+    phase: int,
+    steps_to_reproduce: Optional[str] = None,
+    existing_efforts: Optional[str] = None
 ) -> str:
     """
     Define a problem and generate a complete error-solving investigation package.
@@ -250,21 +299,20 @@ def define_problem(
                                Should focus on observable symptoms without speculation about causes.
                                Example: "User authentication fails with 500 error on login attempt"
         
-        steps_to_reproduce (str): Detailed, sequential steps that consistently reproduce the error.
-                                Should be specific enough for someone else to follow exactly.
-                                Report "unverified" if the problem has not been reproduced and observed in code or logs.
-                                Example: "1. Navigate to /login 2. Enter valid credentials 3. Click submit button"
+        phase (int): The investigation phase to use for this problem.
+                    Phase 1: Basic code review (minimal steps/efforts, no code review done)
+                    Phase 2: Observability/logging (some steps/review, but little logging)
+                    Phase 3: Full systematic investigation (detailed steps, sufficient logging)
         
-        existing_efforts (str): Comprehensive description of all troubleshooting attempts made so far,
-                              including what was tried, what results were observed, and what was ruled out.
-                              Report "None" if no active attempts have been made to solve the bug.
-                              Example: "Checked server logs, verified database connectivity, tested with different users"
+        steps_to_reproduce (Optional[str]): Detailed, sequential steps that consistently reproduce the error.
+                                          Should be specific enough for someone else to follow exactly.
+                                          Report "unverified" if the problem has not been reproduced and observed in code or logs.
+                                          Example: "1. Navigate to /login 2. Enter valid credentials 3. Click submit button"
         
-        phase (Optional[int]): Override the automatic phase selection. If not provided, phase will be
-                             automatically determined based on steps_to_reproduce and existing_efforts.
-                             Phase 1: Basic code review (minimal steps/efforts, no code review done)
-                             Phase 2: Observability/logging (some steps/review, but little logging)
-                             Phase 3: Full systematic investigation (detailed steps, sufficient logging)
+        existing_efforts (Optional[str]): Comprehensive description of all troubleshooting attempts made so far,
+                                        including what was tried, what results were observed, and what was ruled out.
+                                        Report "None" if no active attempts have been made to solve the bug.
+                                        Example: "Checked server logs, verified database connectivity, tested with different users"
     
     Returns:
         str: JSON string containing both the error investigation file and prompt with the following structure:
@@ -277,8 +325,15 @@ def define_problem(
     try:
         import json
         
-        # Determine the appropriate phase
-        selected_phase = phase if phase is not None else determine_phase(steps_to_reproduce, existing_efforts)
+        # Validate the phase selection
+        validation_result = validate_phase_selection(phase, steps_to_reproduce, existing_efforts)
+        
+        # Use the required phase parameter
+        selected_phase = phase
+        
+        # Set default values for optional parameters
+        steps_to_reproduce = steps_to_reproduce or "Steps to reproduce not provided"
+        existing_efforts = existing_efforts or "No existing efforts documented"
         
         # Generate title from problem statement
         words = re.findall(r'\b[A-Z][a-z]+\b|\b[a-z]+\b', problem_statement)
@@ -337,11 +392,17 @@ def define_problem(
         prompt_content = prompt_content.replace("{{FILE}}", f"{title.replace(' Investigation', '')}_phase{selected_phase}_report.md")
         prompt_content = prompt_content.replace("{{Name}}", title.replace(" Investigation", ""))
         
-        # Create JSON response
+        # Create JSON response with validation results
         response = {
             "phase": selected_phase,
             "file": document.strip(),
-            "prompt": prompt_content.strip()
+            "prompt": prompt_content.strip(),
+            "validation": {
+                "valid": validation_result['valid'],
+                "recommended_phase": validation_result['recommended_phase'],
+                "message": validation_result['message'],
+                "warnings": validation_result['warnings']
+            }
         }
         
         return json.dumps(response, indent=2)

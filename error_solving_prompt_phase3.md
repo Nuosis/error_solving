@@ -1,7 +1,11 @@
 # Error Solving Process Using Null Hypothesis Testing
 
-## Context
-Review the error analysis in {{FILE}} which documents a systematic debugging investigation using null hypothesis testing.
+## Primary Task
+Use the template provided as an example when creating an error_solving document based on the problem provided. Your job is to generate hypothesis and their null hypothesis from most fundamental to most dependent. You must follow the template headings strictly and not add additional headings. Do not provide evidence when creating the document. Do not "comment" or otherwise provide evidence when creating the document. Ensure the document provides a systematic flow to solving the problem and that you do not distract or interupt this flow.
+
+Then create a subtask to adhere to the created document to solve the error observed. 
+
+# CONTEXT
 
 ## Definitions
 - **Valid Evidence**: ONLY direct log output from live application execution showing actual runtime behavior, timestamps, and data values
